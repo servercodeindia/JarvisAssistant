@@ -143,32 +143,42 @@ document.addEventListener('DOMContentLoaded', () => {
     function jarvisSpeak(text) {
         jarvisSpeech.textContent = `> J.A.R.V.I.S: ${text.toUpperCase()}`;
         
-        try {
-            // Re-use whitelisted Audio Object to stream TTS from Cloud asynchronously
-            const safeText = encodeURIComponent(text.substring(0, 200)); 
-            const audioUrl = `https://translate.googleapis.com/translate_tts?ie=UTF-8&q=${safeText}&tl=en&client=tw-ob`;
+        if ('speechSynthesis' in window) {
+            // Cancel any current speech to clear the pipe
+            window.speechSynthesis.cancel();
+
+            const utterance = new SpeechSynthesisUtterance(text);
             
-            jarvisAudioEngine.src = audioUrl;
-            jarvisAudioEngine.volume = 1.0;
+            // Re-fetch voices to ensure we have the best one
+            const voices = window.speechSynthesis.getVoices();
+            const jarvisVoice = voices.find(v => v.name.includes("Male") || v.name.includes("Google") || v.name.includes("English")) || voices[0];
             
-            jarvisAudioEngine.onended = () => {
-                if (recognition && !micBtn.classList.contains('recording')) {
-                    try { recognition.start(); } catch(e){}
-                }
+            if (jarvisVoice) utterance.voice = jarvisVoice;
+            utterance.pitch = 0.85;
+            utterance.rate = 1.05;
+
+            utterance.onend = () => {
+                // Wait 2 seconds of "silence" before listening again so the user can think
+                setTimeout(() => {
+                    if (recognition && !micBtn.classList.contains('recording')) {
+                        try { recognition.start(); } catch(e){}
+                    }
+                }, 1500);
             };
-            
-            jarvisAudioEngine.onerror = () => {
-                if (recognition && !micBtn.classList.contains('recording')) {
-                    try { recognition.start(); } catch(e){}
-                }
+
+            utterance.onerror = (e) => {
+                console.error("Speech Error:", e);
+                // Even on error, we should eventually listen again
+                setTimeout(() => {
+                    if (recognition && !micBtn.classList.contains('recording')) {
+                        try { recognition.start(); } catch(err){}
+                    }
+                }, 2000);
             };
-            
-            jarvisAudioEngine.play().catch(e => {
-                console.error("Audio Muted or Autoplay Blocked:", e);
-                jarvisAudioEngine.onerror();
-            });
-        } catch(err) {
-            console.error("JARVIS Audio Engine Crushed:", err);
+
+            window.speechSynthesis.speak(utterance);
+        } else {
+            console.error("Speech Synthesis not supported");
         }
     }
 
