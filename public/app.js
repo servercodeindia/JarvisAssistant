@@ -128,21 +128,52 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     });
 
+    // Voice Loader (Required for Chrome bug fix)
+    let jarvisVoice = null;
+    function loadVoices() {
+        if (!('speechSynthesis' in window)) return;
+        const voices = window.speechSynthesis.getVoices();
+        if (voices.length > 0) {
+            jarvisVoice = voices.find(v => v.name.includes("Male") || v.name.includes("Google") || v.name.includes("David")) || voices.find(v => v.lang.startsWith("en")) || voices[0];
+        }
+    }
+    
+    if ('speechSynthesis' in window) {
+        loadVoices();
+        if (speechSynthesis.onvoiceschanged !== undefined) {
+            speechSynthesis.onvoiceschanged = loadVoices;
+        }
+    }
+
     function jarvisSpeak(text) {
         jarvisSpeech.textContent = `> J.A.R.V.I.S: ${text.toUpperCase()}`;
         if ('speechSynthesis' in window) {
-            const utterance = new SpeechSynthesisUtterance(text);
-            utterance.pitch = 0.8;
-            utterance.rate = 1.0;
+            window.speechSynthesis.cancel(); // Flush dead queues
             
-            // Loop JARVIS back into listening mode immediately after he finishes speaking!
-            utterance.onend = () => {
-                if (recognition && !micBtn.classList.contains('recording')) {
-                    recognition.start();
+            setTimeout(() => {
+                const utterance = new SpeechSynthesisUtterance(text);
+                if (jarvisVoice) {
+                    utterance.voice = jarvisVoice;
                 }
-            };
-            
-            window.speechSynthesis.speak(utterance);
+                
+                utterance.pitch = 0.8;
+                utterance.rate = 1.0;
+                
+                utterance.onend = () => {
+                    if (recognition && !micBtn.classList.contains('recording')) {
+                        try { recognition.start(); } catch(e){}
+                    }
+                };
+                
+                utterance.onerror = (e) => {
+                    console.error("JARVIS Audio Engine Error:", e);
+                    if (recognition && !micBtn.classList.contains('recording')) {
+                        try { recognition.start(); } catch(err){}
+                    }
+                };
+                
+                window.speechSynthesis.speak(utterance);
+            }, 50);
         }
     }
 
