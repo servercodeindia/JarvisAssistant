@@ -128,52 +128,36 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     });
 
-    // Voice Loader (Required for Chrome bug fix)
-    let jarvisVoice = null;
-    function loadVoices() {
-        if (!('speechSynthesis' in window)) return;
-        const voices = window.speechSynthesis.getVoices();
-        if (voices.length > 0) {
-            jarvisVoice = voices.find(v => v.name.includes("Male") || v.name.includes("Google") || v.name.includes("David")) || voices.find(v => v.lang.startsWith("en")) || voices[0];
-        }
-    }
-    
-    if ('speechSynthesis' in window) {
-        loadVoices();
-        if (speechSynthesis.onvoiceschanged !== undefined) {
-            speechSynthesis.onvoiceschanged = loadVoices;
-        }
-    }
-
     function jarvisSpeak(text) {
         jarvisSpeech.textContent = `> J.A.R.V.I.S: ${text.toUpperCase()}`;
-        if ('speechSynthesis' in window) {
-            window.speechSynthesis.cancel(); // Flush dead queues
+        
+        try {
+            // Hard bypass of broken OS TTS Drivers by streaming the audio directly from Cloud
+            const safeText = encodeURIComponent(text.substring(0, 200)); 
+            const audioUrl = `https://translate.googleapis.com/translate_tts?ie=UTF-8&q=${safeText}&tl=en&client=tw-ob`;
+            const audio = new Audio(audioUrl);
             
-            setTimeout(() => {
-                const utterance = new SpeechSynthesisUtterance(text);
-                if (jarvisVoice) {
-                    utterance.voice = jarvisVoice;
+            audio.volume = 1.0;
+            
+            audio.onended = () => {
+                if (recognition && !micBtn.classList.contains('recording')) {
+                    try { recognition.start(); } catch(e){}
                 }
-                
-                utterance.pitch = 0.8;
-                utterance.rate = 1.0;
-                
-                utterance.onend = () => {
-                    if (recognition && !micBtn.classList.contains('recording')) {
-                        try { recognition.start(); } catch(e){}
-                    }
-                };
-                
-                utterance.onerror = (e) => {
-                    console.error("JARVIS Audio Engine Error:", e);
-                    if (recognition && !micBtn.classList.contains('recording')) {
-                        try { recognition.start(); } catch(err){}
-                    }
-                };
-                
-                window.speechSynthesis.speak(utterance);
-            }, 50);
+            };
+            
+            audio.onerror = () => {
+                // If Cloud TTS fails, loop back anyway
+                if (recognition && !micBtn.classList.contains('recording')) {
+                    try { recognition.start(); } catch(e){}
+                }
+            };
+            
+            audio.play().catch(e => {
+                console.error("Audio Muted or Autoplay Blocked:", e);
+                audio.onerror();
+            });
+        } catch(err) {
+            console.error("JARVIS Audio Engine Crushed:", err);
         }
     }
 
@@ -563,3 +547,4 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 });
+
