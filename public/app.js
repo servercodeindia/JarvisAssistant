@@ -103,7 +103,19 @@ document.addEventListener('DOMContentLoaded', () => {
         };
     }
 
+    // Global Audio Engine linked to DOM to natively bypass Autoplay blockers
+    const jarvisAudioEngine = new Audio();
+    let isAudioUnlocked = false;
+
     micBtn.addEventListener('click', async () => {
+        // Synchronously whitelist the Audio element on first user click using a 1-byte silent WAV
+        if (!isAudioUnlocked) {
+            jarvisAudioEngine.volume = 0;
+            jarvisAudioEngine.src = "data:audio/wav;base64,UklGRigAAABXQVZFZm10IBIAAAABAAEARKwAAIhYAQACABAAAABkYXRhAgAAAAEA";
+            jarvisAudioEngine.play().catch(()=>{});
+            isAudioUnlocked = true;
+        }
+
         // If already recording, force stop it
         if (micBtn.classList.contains('recording') && !!recognition) {
             recognition.stop();
@@ -132,29 +144,28 @@ document.addEventListener('DOMContentLoaded', () => {
         jarvisSpeech.textContent = `> J.A.R.V.I.S: ${text.toUpperCase()}`;
         
         try {
-            // Hard bypass of broken OS TTS Drivers by streaming the audio directly from Cloud
+            // Re-use whitelisted Audio Object to stream TTS from Cloud asynchronously
             const safeText = encodeURIComponent(text.substring(0, 200)); 
             const audioUrl = `https://translate.googleapis.com/translate_tts?ie=UTF-8&q=${safeText}&tl=en&client=tw-ob`;
-            const audio = new Audio(audioUrl);
             
-            audio.volume = 1.0;
+            jarvisAudioEngine.src = audioUrl;
+            jarvisAudioEngine.volume = 1.0;
             
-            audio.onended = () => {
+            jarvisAudioEngine.onended = () => {
                 if (recognition && !micBtn.classList.contains('recording')) {
                     try { recognition.start(); } catch(e){}
                 }
             };
             
-            audio.onerror = () => {
-                // If Cloud TTS fails, loop back anyway
+            jarvisAudioEngine.onerror = () => {
                 if (recognition && !micBtn.classList.contains('recording')) {
                     try { recognition.start(); } catch(e){}
                 }
             };
             
-            audio.play().catch(e => {
+            jarvisAudioEngine.play().catch(e => {
                 console.error("Audio Muted or Autoplay Blocked:", e);
-                audio.onerror();
+                jarvisAudioEngine.onerror();
             });
         } catch(err) {
             console.error("JARVIS Audio Engine Crushed:", err);
@@ -547,4 +558,3 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 });
-
