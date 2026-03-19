@@ -337,7 +337,7 @@ app.post('/api/jarvis-command', async (req, res) => {
         
         Command: "${text}"`;
 
-        const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`, {
+        const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
@@ -350,14 +350,16 @@ app.post('/api/jarvis-command', async (req, res) => {
         const data = await response.json();
         if (data.error) throw new Error(data.error.message);
 
-        const rawText = data.candidates[0].content.parts[0].text;
+        let rawText = data.candidates[0].content.parts[0].text;
+        // Strip out markdown code blocks if the AI accidentally added them
+        rawText = rawText.replace(/```json/g, '').replace(/```/g, '').trim();
         const result = JSON.parse(rawText);
 
         res.json(result);
         console.log(`[JARVIS COMMAND EXEC]: ${JSON.stringify(result)}`);
     } catch (e) {
         console.error('[JARVIS ERROR]', e.message);
-        res.json({ action: 'speak', text: 'I encountered an error processing your command.' });
+        res.json({ action: 'speak', text: `API Error: ${e.message.substring(0, 50)}` });
     }
 });
 
