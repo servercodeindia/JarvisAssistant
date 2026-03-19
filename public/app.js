@@ -50,7 +50,7 @@ document.addEventListener('DOMContentLoaded', () => {
     // Setup recognition object if browser supports it
     if (SpeechRecognition) {
         recognition = new SpeechRecognition();
-        recognition.continuous = false;
+        recognition.continuous = false; // We manually loop it to avoid browser memory leaks
         recognition.lang = 'en-US';
         recognition.interimResults = false;
         recognition.maxAlternatives = 1;
@@ -58,7 +58,7 @@ document.addEventListener('DOMContentLoaded', () => {
         recognition.onstart = function() {
             micBtn.classList.add('recording');
             micBtn.textContent = '[ LISTENING... ]';
-            jarvisSpeech.textContent = '> AWAITING VOICE COMMAND... (SPEAK NOW)';
+            jarvisSpeech.textContent = '> AWAITING VOICE COMMAND...';
         };
 
         recognition.onresult = async function(event) {
@@ -76,8 +76,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 const data = await res.json();
                 executeJarvisAction(data);
             } catch (err) {
-                jarvisSpeak('Cannot reach mainframe. Server offline or routing issue.');
-                micBtn.textContent = '[ START VOICE UPLINK ]';
+                jarvisSpeak('Cannot reach mainframe. Check network connection.');
             }
         };
 
@@ -85,68 +84,65 @@ document.addEventListener('DOMContentLoaded', () => {
             recognition.stop();
         };
 
-        // Reset UI if it ends without a result (user was quiet)
         recognition.onend = function() {
-            if (micBtn.classList.contains('recording')) {
-                micBtn.classList.remove('recording');
-                micBtn.textContent = '[ START VOICE UPLINK ]';
-                jarvisSpeech.textContent = '> AUDIO CAPTURE TIMEOUT. NO SPEECH DETECTED.';
-            }
+            micBtn.classList.remove('recording');
         };
 
         recognition.onerror = function(event) {
             if (event.error === 'not-allowed') {
-                jarvisSpeak('Microphone access denied. Please allow permissions in browser settings.');
+                jarvisSpeak('Microphone access denied. Please allow permissions in browser.');
             } else if (event.error === 'no-speech') {
-                // Handled by onend usually, but good to catch
+                // Restart listening automatically if no speech was detected
+                if (!micBtn.classList.contains('recording')) {
+                    recognition.start();
+                }
             } else {
-                jarvisSpeak('Audio capture failed. Check network security protocols.');
+                jarvisSpeak('Audio capture failed.');
             }
             micBtn.classList.remove('recording');
-            micBtn.textContent = '[ START VOICE UPLINK ]';
         };
     }
 
     micBtn.addEventListener('click', async () => {
-        // If already recording, stop
-        if (micBtn.classList.contains('recording') && recognition) {
+        // If already recording, force stop it
+        if (micBtn.classList.contains('recording') && !!recognition) {
             recognition.stop();
+            micBtn.textContent = '[ START VOICE UPLINK ]';
             return;
         }
 
-        // Force browser to ask for Microphone Permission Popup
         try {
             if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
                 jarvisSpeech.textContent = '> REQUESTING MIC PERMISSION...';
                 await navigator.mediaDevices.getUserMedia({ audio: true });
-            } else {
-                jarvisSpeak('Browser does not support secure audio capture. Use HTTPS or localhost.');
-                return;
             }
         } catch (err) {
-            jarvisSpeak('Microphone permission denied by user.');
+            jarvisSpeak('Microphone permission denied.');
             return;
         }
 
-        // Proceed to start recognition after permission granted
         if (recognition) {
             recognition.start();
         } else {
-            jarvisSpeak('Voice recognition is not supported on this browser device.');
-            micBtn.textContent = '[ BROWSER UNSUPPORTED ]';
+            jarvisSpeech.textContent = '> VOICE RECOGNITION UNSUPPORTED ON THIS DEVICE';
         }
     });
 
     function jarvisSpeak(text) {
         jarvisSpeech.textContent = `> J.A.R.V.I.S: ${text.toUpperCase()}`;
         if ('speechSynthesis' in window) {
-            window.speechSynthesis.cancel(); // Clear stuck queues
-            setTimeout(() => {
-                const utterance = new SpeechSynthesisUtterance(text);
-                utterance.pitch = 0.8;
-                utterance.rate = 1.0;
-                window.speechSynthesis.speak(utterance);
-            }, 50);
+            const utterance = new SpeechSynthesisUtterance(text);
+            utterance.pitch = 0.8;
+            utterance.rate = 1.0;
+            
+            // Loop JARVIS back into listening mode immediately after he finishes speaking!
+            utterance.onend = () => {
+                if (recognition && !micBtn.classList.contains('recording')) {
+                    recognition.start();
+                }
+            };
+            
+            window.speechSynthesis.speak(utterance);
         }
     }
 
