@@ -11,7 +11,6 @@ const __dirname = path.dirname(__filename);
 
 const app = express();
 const PORT = process.env.PORT || 5000;
-// Note: Ultravox requires HTTPS for tool webhooks. Set BASE_URL in your environment (e.g., https://your-app.render.com).
 const BASE_URL = process.env.BASE_URL || 'MISSING_BASE_URL_FOR_TOOLS';
 
 app.use(cors());
@@ -19,12 +18,11 @@ app.use(express.json());
 app.use(express.static(path.join(__dirname, 'public')));
 
 // ------------------------------------------------------------
-// Configuration from Environment Variables
+// Configuration
 // ------------------------------------------------------------
 const TWILIO_ACCOUNT_SID = process.env.TWILIO_ACCOUNT_SID;
 const TWILIO_AUTH_TOKEN = process.env.TWILIO_AUTH_TOKEN;
 const TWILIO_PHONE_NUMBER = process.env.TWILIO_PHONE_NUMBER;
-const DESTINATION_PHONE_NUMBER = process.env.DESTINATION_PHONE_NUMBER;
 const ULTRAVOX_API_KEY = process.env.ULTRAVOX_API_KEY;
 
 const SYSTEM_PROMPT = `You are Jarvis, a highly advanced artificial intelligence created by servercodeindia. You are equivalent in capability and intelligence to ChatGPT.
@@ -72,74 +70,50 @@ const ULTRAVOX_CALL_CONFIG = {
     ]
 };
 
-// Validates all required config vars are set
 function validateConfiguration() {
     const requiredConfig = [
-        { name: 'TWILIO_ACCOUNT_SID', value: TWILIO_ACCOUNT_SID, pattern: /^AC[a-zA-Z0-9]{32}$/ },
-        { name: 'TWILIO_AUTH_TOKEN', value: TWILIO_AUTH_TOKEN, pattern: /^[a-zA-Z0-9]{32}$/ },
-        { name: 'TWILIO_PHONE_NUMBER', value: TWILIO_PHONE_NUMBER, pattern: /^\+[1-9]\d{1,14}$/ },
-        { name: 'DESTINATION_PHONE_NUMBER', value: DESTINATION_PHONE_NUMBER, pattern: /^\+[1-9]\d{1,14}$/ },
-        { name: 'ULTRAVOX_API_KEY', value: ULTRAVOX_API_KEY, pattern: /^[a-zA-Z0-9]{8}\.[a-zA-Z0-9]{32}$/ }
+        { name: 'TWILIO_ACCOUNT_SID', value: TWILIO_ACCOUNT_SID },
+        { name: 'TWILIO_AUTH_TOKEN', value: TWILIO_AUTH_TOKEN },
+        { name: 'TWILIO_PHONE_NUMBER', value: TWILIO_PHONE_NUMBER },
+        { name: 'ULTRAVOX_API_KEY', value: ULTRAVOX_API_KEY }
     ];
-
     const errors = [];
-    for (const config of requiredConfig) {
-        if (!config.value || config.value.includes('your_')) {
-            errors.push(`❌ ${config.name} is not set correctly in .env`);
-        } else if (config.pattern && !config.pattern.test(config.value)) {
-            errors.push(`❌ ${config.name} format appears invalid`);
-        }
+    for (const c of requiredConfig) {
+        if (!c.value) errors.push(`${c.name} is not set in .env`);
     }
     return errors;
 }
 
-// Creates the Ultravox call
+// Creates Ultravox call
 async function createUltravoxCall(systemPrompt) {
-    const ULTRAVOX_API_URL = 'https://api.ultravox.ai/api/calls';
-    
-    const config = {
-        ...ULTRAVOX_CALL_CONFIG,
-        systemPrompt: systemPrompt
-    };
-
-    // Only include tools if we have a valid HTTPS BASE_URL
+    const config = { ...ULTRAVOX_CALL_CONFIG, systemPrompt };
     if (!BASE_URL || !BASE_URL.startsWith('https://') || BASE_URL.includes('MISSING')) {
-        console.warn('⚠️ Tool calling disabled: BASE_URL must be a valid https:// URL.');
         delete config.selectedTools;
     }
 
-    const request = https.request(ULTRAVOX_API_URL, {
-        method: 'POST',
-        headers: {
-            'Content-Type': 'application/json',
-            'X-API-Key': ULTRAVOX_API_KEY
-        }
-    });
-
     return new Promise((resolve, reject) => {
+        const req = https.request('https://api.ultravox.ai/api/calls', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'X-API-Key': ULTRAVOX_API_KEY }
+        });
         let data = '';
-        request.on('response', (response) => {
-            response.on('data', chunk => data += chunk);
-            response.on('end', () => {
+        req.on('response', (res) => {
+            res.on('data', chunk => data += chunk);
+            res.on('end', () => {
                 try {
-                    const parsedData = JSON.parse(data);
-                    if (response.statusCode >= 200 && response.statusCode < 300) {
-                        resolve(parsedData);
-                    } else {
-                        reject(new Error(`Ultravox API error (${response.statusCode}): ${data}`));
-                    }
-                } catch (parseError) {
-                    reject(new Error(`Failed to parse Ultravox response`));
-                }
+                    const parsed = JSON.parse(data);
+                    if (res.statusCode >= 200 && res.statusCode < 300) resolve(parsed);
+                    else reject(new Error(`Ultravox error (${res.statusCode}): ${data}`));
+                } catch (e) { reject(new Error('Failed to parse Ultravox response')); }
             });
         });
-        request.on('error', (error) => reject(new Error(`Network error: ${error.message}`)));
-        request.write(JSON.stringify(config));
-        request.end();
+        req.on('error', (e) => reject(new Error(`Network error: ${e.message}`)));
+        req.write(JSON.stringify(config));
+        req.end();
     });
 }
 
-// Fetches coordinates for a location via Open-Meteo Geocoding API
+// Geocoding
 async function getGeocoding(location) {
     return new Promise((resolve) => {
         const url = `https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(location)}&count=1&language=en&format=json`;
@@ -152,16 +126,14 @@ async function getGeocoding(location) {
                     if (parsed.results && parsed.results.length > 0) {
                         const { latitude, longitude, timezone, name, country } = parsed.results[0];
                         resolve({ latitude, longitude, timezone, name, country });
-                    } else {
-                        resolve(null);
-                    }
-                } catch { resolve(null); }
+                    } else resolve(null);
+                } catch (e) { resolve(null); }
             });
         }).on('error', () => resolve(null));
     });
 }
 
-// Fetches weather using coordinates
+// Weather
 async function getWeather(lat, lng) {
     return new Promise((resolve) => {
         const url = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lng}&current_weather=true`;
@@ -174,106 +146,276 @@ async function getWeather(lat, lng) {
                     if (parsed.current_weather) {
                         const { temperature, windspeed } = parsed.current_weather;
                         resolve(`${temperature}°C, windspeed ${windspeed} km/h`);
-                    } else { resolve('unavailable'); }
-                } catch { resolve('unavailable'); }
+                    } else resolve('unavailable');
+                } catch (e) { resolve('unavailable'); }
             });
         }).on('error', () => resolve('unavailable'));
     });
 }
 
-// Ultravox Webhook for tool calls
+// Make a single call
+async function makeCallToNumber(phoneNumber) {
+    const now = new Date();
+    const kolkataTime = now.toLocaleString('en-IN', { timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit', hour12: true });
+    const dynamicPrompt = `${SYSTEM_PROMPT}\n\nIMPORTANT CONTEXT:\n- Your current local time is ${kolkataTime} (Kolkata).\nIf the user asks for weather or time, use the weatherInfo tool.`;
+
+    const ultravoxResponse = await createUltravoxCall(dynamicPrompt);
+    if (!ultravoxResponse.joinUrl) throw new Error('No joinUrl received from Ultravox API');
+
+    const client = twilio(TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN);
+    const call = await client.calls.create({
+        twiml: `<Response><Connect><Stream url="${ultravoxResponse.joinUrl}"/></Connect></Response>`,
+        to: phoneNumber,
+        from: TWILIO_PHONE_NUMBER
+    });
+    return call.sid;
+}
+
+// Auto-verify a number
+async function autoVerifyNumber(phoneNumber) {
+    const client = twilio(TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN);
+    const validation = await client.validationRequests.create({
+        friendlyName: `Jarvis-${phoneNumber}`,
+        phoneNumber: phoneNumber
+    });
+    return validation.validationCode;
+}
+
+// ============================================================
+// ROUTES
+// ============================================================
+
+// Weather tool webhook
 app.post('/api/tools/weather-info', async (req, res) => {
     const { location } = req.body;
-    console.log(`\n🤖 --- Tool Call Received ---`);
-    console.log(`📍 Location requested: "${location}"`);
-    
-    if (!location) {
-        console.error('❌ Error: No location provided in tool call body.');
-        return res.json({ result: "I need a location name to check the weather." });
-    }
-
+    if (!location) return res.json({ result: "I need a location name." });
     try {
-        console.log(`🔍 Fetching geocoding for "${location}"...`);
         const geo = await getGeocoding(location);
-        if (!geo) {
-            console.warn(`⚠️ Warning: Location "${location}" not found by geocoding API.`);
-            return res.json({ result: `I'm sorry, I couldn't find the location "${location}". Please try a more specific city name.` });
-        }
-
-        console.log(`🌍 Found: ${geo.name}, ${geo.country} (${geo.latitude}, ${geo.longitude})`);
-        console.log(`⛅ Fetching weather...`);
+        if (!geo) return res.json({ result: `Couldn't find "${location}".` });
         const weather = await getWeather(geo.latitude, geo.longitude);
-        
-        const now = new Date();
-        const localTime = now.toLocaleString('en-IN', { timeZone: geo.timezone, hour: '2-digit', minute: '2-digit', hour12: true });
-
-        const result = `In ${geo.name}, ${geo.country || ''}, the current local time is ${localTime} and the weather is ${weather}.`;
-        console.log(`✅ Success: ${result}`);
-        res.json({ result });
-    } catch (error) {
-        console.error('💥 Error in tool call logic:', error.message);
-        res.json({ result: "I encountered a technical error while fetching that information. Please try again in a moment." });
+        const localTime = new Date().toLocaleString('en-IN', { timeZone: geo.timezone, hour: '2-digit', minute: '2-digit', hour12: true });
+        res.json({ result: `In ${geo.name}, ${geo.country || ''}, time is ${localTime}, weather is ${weather}.` });
+    } catch (e) {
+        res.json({ result: "Error fetching weather." });
     }
 });
 
-// API Endpoint to start the call
+// ============================================================
+// SINGLE CALL — tries call, auto-verifies on 21219 error
+// ============================================================
 app.post('/api/start-call', async (req, res) => {
-    console.log('\n🚀 --- Call Initiation Request ---');
-    if (BASE_URL.includes('your-app-name')) {
-        console.warn('⚠️ WARNING: BASE_URL is still set to placeholder. Tool calling will fail unless you set BASE_URL in environment variables.');
-    } else {
-        console.log(`🔗 Webhook BASE_URL: ${BASE_URL}`);
+    let { phoneNumber } = req.body;
+    
+    // Auto-add +91 if just 10 digits
+    if (phoneNumber && /^\d{10}$/.test(phoneNumber.trim())) {
+        phoneNumber = '+91' + phoneNumber.trim();
     }
+    
+    console.log(`\n🚀 Call request → ${phoneNumber}`);
 
     const errors = validateConfiguration();
-    if (errors.length > 0) {
-        console.error('❌ Configuration errors detected:', errors.join(', '));
-        return res.status(500).json({ success: false, errors });
+    if (errors.length > 0) return res.status(500).json({ success: false, error: errors.join(', ') });
+    if (!phoneNumber || !/^\+[1-9]\d{7,14}$/.test(phoneNumber)) {
+        return res.status(400).json({ success: false, error: 'Invalid number format' });
     }
 
     try {
-        const now = new Date();
-        const kolkataTime = now.toLocaleString('en-IN', { timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit', hour12: true });
+        const callSid = await makeCallToNumber(phoneNumber);
+        console.log(`🎉 Success: ${callSid}`);
+        return res.json({ success: true, callSid });
+    } catch (error) {
+        const msg = error.message || '';
+        const code = error.code || 0;
+        console.error(`💥 Failed [${code}]: ${msg}`);
 
-        const dynamicPrompt = `${SYSTEM_PROMPT}
+        // Detect unverified number error
+        const isUnverified = (
+            code === 21219 ||
+            msg.includes('21219') ||
+            msg.toLowerCase().includes('not verified') ||
+            msg.toLowerCase().includes('unverified') ||
+            msg.toLowerCase().includes('is not a verified') ||
+            msg.toLowerCase().includes('trial account')
+        );
 
-IMPORTANT CONTEXT:
-- Your current local time is ${kolkataTime} (Kolkata).
-- **Barpeta Road, Assam**: Time is ${kolkataTime}, Weather is mostly cloudy, 19°C, humidity 90%.
-- **Guwahati, Assam**: Time is ${kolkataTime}, Weather is misty, 22°C, humidity 94%.
-
-If the user asks for weather or time in these specific locations, use the data above. If they ask for ANY other location, politely explain that you are being configured for global awareness and will have it ready shortly.`;
-
-        console.log('🤖 Creating Ultravox call with dynamic prompt...');
-        const ultravoxResponse = await createUltravoxCall(dynamicPrompt);
-        
-        if (!ultravoxResponse.joinUrl) {
-            throw new Error('No joinUrl received from Ultravox API');
+        if (isUnverified) {
+            console.log(`🔐 Unverified! Auto-sending verification to ${phoneNumber}...`);
+            try {
+                const validationCode = await autoVerifyNumber(phoneNumber);
+                console.log(`📱 Verification sent! Code: ${validationCode}`);
+                return res.json({
+                    success: false,
+                    needsVerification: true,
+                    validationCode: validationCode,
+                    phoneNumber: phoneNumber,
+                    error: `Twilio is calling ${phoneNumber}. Answer and enter code: ${validationCode}`
+                });
+            } catch (vErr) {
+                console.error(`💥 Auto-verify failed:`, vErr.message);
+                return res.json({
+                    success: false,
+                    needsVerification: true,
+                    error: `Unverified & verify failed: ${vErr.message}`
+                });
+            }
         }
 
-        const client = twilio(TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN);
-        const call = await client.calls.create({
-            twiml: `<Response><Connect><Stream url="${ultravoxResponse.joinUrl}"/></Connect></Response>`,
-            to: DESTINATION_PHONE_NUMBER,
-            from: TWILIO_PHONE_NUMBER
-        });
-
-        console.log('🎉 Call SID created:', call.sid);
-        res.json({ success: true, callSid: call.sid });
-    } catch (error) {
-        console.error('💥 Error starting call:', error.message);
-        res.status(500).json({ success: false, error: error.message });
+        return res.status(500).json({ success: false, error: msg });
     }
 });
 
+// ============================================================
+// VERIFY NUMBER endpoint
+// ============================================================
+app.post('/api/verify-number', async (req, res) => {
+    let { phoneNumber } = req.body;
+    if (phoneNumber && /^\d{10}$/.test(phoneNumber.trim())) {
+        phoneNumber = '+91' + phoneNumber.trim();
+    }
+    if (!phoneNumber || !/^\+[1-9]\d{7,14}$/.test(phoneNumber)) {
+        return res.status(400).json({ success: false, error: 'Invalid number' });
+    }
+    try {
+        const client = twilio(TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN);
+        const callerIds = await client.outgoingCallerIds.list();
+        if (callerIds.find(c => c.phoneNumber === phoneNumber)) {
+            return res.json({ success: true, alreadyVerified: true });
+        }
+        const validation = await client.validationRequests.create({
+            friendlyName: `Jarvis-${phoneNumber}`, phoneNumber
+        });
+        res.json({ success: true, alreadyVerified: false, validationCode: validation.validationCode });
+    } catch (e) {
+        res.status(500).json({ success: false, error: e.message });
+    }
+});
+
+// ============================================================
+// CHECK VERIFIED endpoint
+// ============================================================
+app.post('/api/check-verified', async (req, res) => {
+    try {
+        const client = twilio(TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN);
+        const callerIds = await client.outgoingCallerIds.list();
+        const verified = callerIds.map(c => c.phoneNumber);
+        const nums = req.body.phoneNumbers || [];
+        const results = nums.map(n => ({ number: n, verified: verified.includes(n) }));
+        res.json({ success: true, results, verifiedNumbers: verified });
+    } catch (e) {
+        res.status(500).json({ success: false, error: e.message });
+    }
+});
+
+// ============================================================
+// JARVIS AI COMMAND PROCESSOR (GEMINI)
+// ============================================================
+app.post('/api/jarvis-command', async (req, res) => {
+    try {
+        const { text } = req.body;
+        const apiKey = process.env.GEMINI_API_KEY;
+        
+        if (!apiKey) {
+            return res.json({ action: 'speak', text: 'Critical Error. Gemini API Key is missing from the server environment. Please provide a token.' });
+        }
+
+        const systemPrompt = `You are J.A.R.V.I.S., an advanced AI assistant. 
+        The user will give you a voice command.
+        You MUST respond in strict, valid JSON format matching exactly ONE of these schemas based on intent:
+        
+        1. Open a website (e.g. "open youtube", "open facebook"): 
+           {"action": "open_url", "url": "https://www.website.com"}
+           
+        2. Answer Factual Queries / Search Data (e.g. "what is the weather", "who won the game", "search google for the price of bitcoin"): 
+           You have access to Google Search. Search for the real-time data, summarize the answer concisely (1-2 sentences), and return it to be spoken aloud:
+           {"action": "speak", "text": "Sir, the current price is..."}
+           
+        3. Literally open a Google Search tab (e.g. "open a tab for cats"): 
+           {"action": "search", "query": "cats"}
+
+        4. General conversation, questions, or greetings: 
+           {"action": "speak", "text": "Your JARVIS-like spoken response here"}
+        
+        Command: "${text}"`;
+
+        const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                contents: [{ parts: [{ text: systemPrompt }] }],
+                tools: [{ googleSearch: {} }],
+                generationConfig: { responseMimeType: "application/json" }
+            })
+        });
+
+        const data = await response.json();
+        if (data.error) throw new Error(data.error.message);
+
+        const rawText = data.candidates[0].content.parts[0].text;
+        const result = JSON.parse(rawText);
+
+        res.json(result);
+        console.log(`[JARVIS COMMAND EXEC]: ${JSON.stringify(result)}`);
+    } catch (e) {
+        console.error('[JARVIS ERROR]', e.message);
+        res.json({ action: 'speak', text: 'I encountered an error processing your command.' });
+    }
+});
+
+// ============================================================
+// SERVER LOGS EVENT STREAM (SSE)
+// ============================================================
+const logClients = [];
+
+function broadcastLog(level, message) {
+    const time = new Date().toLocaleTimeString('en-IN', { hour12: false });
+    const payload = `data: ${JSON.stringify({ time, level, msg: message })}\n\n`;
+    logClients.forEach(client => client.write(payload));
+}
+
+// Override console.log and console.error to broadcast to frontend
+const originalLog = console.log;
+const originalError = console.error;
+
+console.log = function(...args) {
+    originalLog.apply(console, args);
+    broadcastLog('info', args.map(a => typeof a === 'object' ? JSON.stringify(a) : a).join(' '));
+};
+
+console.error = function(...args) {
+    originalError.apply(console, args);
+    broadcastLog('error', args.map(a => typeof a === 'object' ? JSON.stringify(a) : a).join(' '));
+};
+
+app.get('/api/logs', (req, res) => {
+    res.setHeader('Content-Type', 'text/event-stream');
+    res.setHeader('Cache-Control', 'no-cache');
+    res.setHeader('Connection', 'keep-alive');
+    res.flushHeaders(); 
+
+    // Add this client to the broadcast list
+    logClients.push(res);
+
+    req.on('close', () => {
+        const index = logClients.indexOf(res);
+        if (index !== -1) logClients.splice(index, 1);
+    });
+});
+
+// SPA fallback
 app.get('*', (req, res) => {
     res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
 
-app.listen(PORT, () => {
+const server = app.listen(PORT, () => {
     console.log(`\n-----------------------------------------`);
     console.log(`✨ Server running on http://localhost:${PORT}`);
-    console.log(`🚀 Ready to start outbound calls!`);
+    console.log(`🚀 Bulk Calling System Ready!`);
     console.log(`-----------------------------------------\n`);
 });
-
+
+server.on('error', (e) => {
+    if (e.code === 'EADDRINUSE') {
+        originalError(`❌ Port ${PORT} is already in use! Kill the other process first.`);
+        process.exit(1);
+    }
+});
