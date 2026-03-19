@@ -67,63 +67,16 @@ document.addEventListener('DOMContentLoaded', () => {
             micBtn.textContent = '[ PROCESSING... ]';
             micBtn.classList.remove('recording');
 
-            let apiKey = localStorage.getItem('gemini_api_key');
-            if (!apiKey) {
-                apiKey = prompt("VOICE UPLINK REQUIRES A GEMINI API KEY.\nPlease paste your key (starting with AIza):");
-                if (apiKey) {
-                    apiKey = apiKey.trim();
-                    localStorage.setItem('gemini_api_key', apiKey);
-                } else {
-                    jarvisSpeak("Uplink aborted. Key missing.");
-                    micBtn.textContent = '[ START VOICE UPLINK ]';
-                    return;
-                }
-            }
-
             try {
-                const systemPrompt = `You are J.A.R.V.I.S., an advanced AI assistant. 
-                The user will give you a voice command.
-                You MUST respond in strict, valid JSON format matching exactly ONE of these schemas based on intent:
-                
-                1. Open a website (e.g. "open youtube", "open facebook"): 
-                   {"action": "open_url", "url": "https://www.website.com"}
-                   
-                2. Answer Factual Queries / Creative Chat (e.g. "who won the game", "search for history of rome", "tell me a joke"): 
-                   Answer the query naturally using your own vast internal knowledge base. Summarize the answer concisely (1-2 sentences), and return it to be spoken aloud:
-                   {"action": "speak", "text": "Sir, according to my databanks..."}
-                   
-                3. Literally open a Google Search browser tab (e.g. "open a tab for cats"): 
-                   {"action": "search", "query": "cats"}
-        
-                4. General conversation, questions, or greetings: 
-                   {"action": "speak", "text": "Your JARVIS-like spoken response here"}
-                
-                Command: "${transcript}"`;
-
-                const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`, {
+                const res = await fetch('/api/jarvis-command', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        contents: [{ parts: [{ text: systemPrompt }] }],
-                        generationConfig: { responseMimeType: "application/json" }
-                    })
+                    body: JSON.stringify({ text: transcript })
                 });
-                
                 const data = await res.json();
-                if (data.error) {
-                    if (data.error.message.includes('API key not valid')) {
-                        localStorage.removeItem('gemini_api_key'); // clear bad key to ask again next time
-                    }
-                    throw new Error(data.error.message);
-                }
-
-                let rawText = data.candidates[0].content.parts[0].text;
-                rawText = rawText.replace(/```json/g, '').replace(/```/g, '').trim();
-                const result = JSON.parse(rawText);
-                executeJarvisAction(result);
-
+                executeJarvisAction(data);
             } catch (err) {
-                jarvisSpeak('Network failure or invalid API key.');
+                jarvisSpeak('Cannot reach mainframe. Server offline or routing issue.');
                 micBtn.textContent = '[ START VOICE UPLINK ]';
             }
         };
