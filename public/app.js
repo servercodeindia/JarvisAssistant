@@ -45,26 +45,33 @@ document.addEventListener('DOMContentLoaded', () => {
     // =============================================
     const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
     let recognition = null;
-    let synthUnlocked = false; // Track if TTS is unlocked
-    
-    // Setup recognition object if browser supports it
+    let isProcessing = false;
+    let isSpeaking = false;
+    let isUplinkActive = false; // Persistent state for continuous mode
+
+    // Global Audio Engine linked to DOM to natively bypass Autoplay blockers
+    const jarvisAudioEngine = new Audio();
+    let isAudioUnlocked = false;
+
     if (SpeechRecognition) {
         recognition = new SpeechRecognition();
-        recognition.continuous = false; // We manually loop it to avoid browser memory leaks
+        recognition.continuous = false; // We manually pulse it for better reliability
         recognition.lang = 'en-US';
         recognition.interimResults = false;
-        recognition.maxAlternatives = 1;
 
-        recognition.onstart = function() {
+        recognition.onstart = () => {
             micBtn.classList.add('recording');
-            micBtn.textContent = '[ LISTENING... ]';
-            jarvisSpeech.textContent = '> AWAITING VOICE COMMAND...';
+            micBtn.textContent = '[ SCANNING... ]';
+            if (!isProcessing && !isSpeaking) {
+                jarvisSpeech.textContent = '> AWAITING VOICE COMMAND...';
+            }
         };
 
-        recognition.onresult = async function(event) {
+        recognition.onresult = async (event) => {
             const transcript = event.results[0][0].transcript;
             jarvisSpeech.textContent = `> YOU: "${transcript.toUpperCase()}"`;
-            micBtn.textContent = '[ PROCESSING... ]';
+            isProcessing = true;
+            micBtn.textContent = '[ DECODING... ]';
             micBtn.classList.remove('recording');
 
             try {
@@ -74,129 +81,119 @@ document.addEventListener('DOMContentLoaded', () => {
                     body: JSON.stringify({ text: transcript })
                 });
                 const data = await res.json();
+                isProcessing = false;
                 executeJarvisAction(data);
             } catch (err) {
-                jarvisSpeak('Cannot reach mainframe. Check network connection.');
+                isProcessing = false;
+                jarvisSpeak('Cannot reach mainframe. Signal lost.');
             }
         };
 
-        recognition.onspeechend = function() {
-            recognition.stop();
-        };
-
-        recognition.onend = function() {
-            micBtn.classList.remove('recording');
-        };
-
-        recognition.onerror = function(event) {
+        recognition.onerror = (event) => {
             if (event.error === 'not-allowed') {
-                jarvisSpeak('Microphone access denied. Please allow permissions in browser.');
-            } else if (event.error === 'no-speech') {
-                // Restart listening automatically if no speech was detected
-                if (!micBtn.classList.contains('recording')) {
-                    recognition.start();
-                }
-            } else {
-                jarvisSpeak('Audio capture failed.');
+                jarvisSpeak('Microphone permission blocked by firewall.');
+                isUplinkActive = false;
             }
             micBtn.classList.remove('recording');
+        };
+
+        recognition.onend = () => {
+            micBtn.classList.remove('recording');
+            // Heartbeat will restart it if isUplinkActive is true
         };
     }
 
-    // Global Audio Engine linked to DOM to natively bypass Autoplay blockers
-    const jarvisAudioEngine = new Audio();
-    let isAudioUnlocked = false;
+    // VOX HEARTBEAT: Ensure J.A.R.V.I.S never stops listening
+    setInterval(() => {
+        if (isUplinkActive && recognition && !isProcessing && !isSpeaking) {
+            // If the recognition stopped but JARVIS isn't busy, RESTART IT
+            try {
+                recognition.start();
+            } catch (e) {
+                // Already started, ignore
+            }
+        }
+    }, 1500);
 
     micBtn.addEventListener('click', async () => {
-        // Synchronously whitelist the Audio element on first user click using a 1-byte silent WAV
+        // Unlock Audio Context on first click
         if (!isAudioUnlocked) {
-            jarvisAudioEngine.volume = 0;
             jarvisAudioEngine.src = "data:audio/wav;base64,UklGRigAAABXQVZFZm10IBIAAAABAAEARKwAAIhYAQACABAAAABkYXRhAgAAAAEA";
             jarvisAudioEngine.play().catch(()=>{});
             isAudioUnlocked = true;
         }
 
-        // If already recording, force stop it
-        if (micBtn.classList.contains('recording') && !!recognition) {
-            recognition.stop();
+        if (isUplinkActive) {
+            isUplinkActive = false;
+            if (recognition) recognition.stop();
             micBtn.textContent = '[ START VOICE UPLINK ]';
-            return;
-        }
-
-        try {
-            if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
-                jarvisSpeech.textContent = '> REQUESTING MIC PERMISSION...';
-                await navigator.mediaDevices.getUserMedia({ audio: true });
-            }
-        } catch (err) {
-            jarvisSpeak('Microphone permission denied.');
-            return;
-        }
-
-        if (recognition) {
-            recognition.start();
+            jarvisSpeech.textContent = '> VOICE UPLINK DISCONNECTED.';
         } else {
-            jarvisSpeech.textContent = '> VOICE RECOGNITION UNSUPPORTED ON THIS DEVICE';
+            isUplinkActive = true;
+            jarvisSpeech.textContent = '> ESTABLISHING SECURE VOICE UPLINK...';
+            
+            try {
+                if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
+                    await navigator.mediaDevices.getUserMedia({ audio: true });
+                    if (recognition) recognition.start();
+                }
+            } catch (err) {
+                jarvisSpeak('Mic permission denied.');
+                isUplinkActive = false;
+            }
         }
     });
 
     function jarvisSpeak(text) {
         jarvisSpeech.textContent = `> J.A.R.V.I.S: ${text.toUpperCase()}`;
+        isSpeaking = true;
         
-        if ('speechSynthesis' in window) {
-            // Cancel any current speech to clear the pipe
-            window.speechSynthesis.cancel();
-
-            const utterance = new SpeechSynthesisUtterance(text);
+        try {
+            const safeText = encodeURIComponent(text.substring(0, 200)); 
+            const audioUrl = `https://translate.googleapis.com/translate_tts?ie=UTF-8&q=${safeText}&tl=en&client=tw-ob`;
             
-            // Re-fetch voices to ensure we have the best one
-            const voices = window.speechSynthesis.getVoices();
-            const jarvisVoice = voices.find(v => v.name.includes("Male") || v.name.includes("Google") || v.name.includes("English")) || voices[0];
+            jarvisAudioEngine.src = audioUrl;
             
-            if (jarvisVoice) utterance.voice = jarvisVoice;
-            utterance.pitch = 0.85;
-            utterance.rate = 1.05;
-
-            utterance.onend = () => {
-                // Wait 2 seconds of "silence" before listening again so the user can think
-                setTimeout(() => {
-                    if (recognition && !micBtn.classList.contains('recording')) {
-                        try { recognition.start(); } catch(e){}
-                    }
-                }, 1500);
+            jarvisAudioEngine.onended = () => {
+                isSpeaking = false;
             };
-
-            utterance.onerror = (e) => {
-                console.error("Speech Error:", e);
-                // Even on error, we should eventually listen again
-                setTimeout(() => {
-                    if (recognition && !micBtn.classList.contains('recording')) {
-                        try { recognition.start(); } catch(err){}
-                    }
-                }, 2000);
+            
+            jarvisAudioEngine.onerror = () => {
+                isSpeaking = false;
             };
-
-            window.speechSynthesis.speak(utterance);
-        } else {
-            console.error("Speech Synthesis not supported");
+            
+            jarvisAudioEngine.play().catch(e => {
+                console.warn("Audio blocked. Hover or click the page to enable JARVIS voice.");
+                isSpeaking = false;
+            });
+        } catch(err) {
+            isSpeaking = false;
         }
     }
 
     function executeJarvisAction(data) {
-        if (data.action === 'open_url') {
-            jarvisSpeak(`Accessing network. Opening ${data.url}.`);
-            setTimeout(() => window.open(data.url, '_blank'), 1500);
-        } else if (data.action === 'search') {
-            jarvisSpeak(`Searching global databases for ${data.query}.`);
-            setTimeout(() => window.open(`https://google.com/search?q=${encodeURIComponent(data.query)}`, '_blank'), 1500);
+        if (data.action === 'open_url' || data.action === 'search') {
+            const url = data.action === 'search' 
+                ? `https://google.com/search?q=${encodeURIComponent(data.query)}`
+                : data.url;
+            
+            jarvisSpeak(`Processing action. Redirecting to ${url.split('/')[2]}...`);
+            
+            // POPUP BLOCKER WARNING
+            const win = window.open(url, '_blank');
+            if (!win) {
+                jarvisSpeak("Warning: Browser Popup Blocker active. Please click 'Always Allow' in your URL bar to enable JARVIS browser control.");
+            }
         } else if (data.action === 'speak') {
             jarvisSpeak(data.text);
         } else {
-            jarvisSpeak('Command protocol unrecognized.');
+            jarvisSpeak('Protocol unrecognized.');
         }
         
-        // Reset mic button
-        setTimeout(() => micBtn.textContent = '[ START VOICE UPLINK ]', 2000);
+        setTimeout(() => {
+            if (isUplinkActive) micBtn.textContent = '[ SCANNING... ]';
+            else micBtn.textContent = '[ START VOICE UPLINK ]';
+        }, 2000);
     }
 
     // =============================================
