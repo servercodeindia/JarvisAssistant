@@ -312,7 +312,9 @@ app.post('/api/check-verified', async (req, res) => {
 app.post('/api/jarvis-command', async (req, res) => {
     try {
         const { text } = req.body;
-        const apiKey = process.env.GEMINI_API_KEY;
+        // Strip out accidental quotes, whitespaces, or newlines from the .env file
+        let apiKey = process.env.GEMINI_API_KEY;
+        if (apiKey) apiKey = apiKey.replace(/['"]/g, '').trim();
         
         if (!apiKey) {
             return res.json({ action: 'speak', text: 'Critical Error. Gemini API Key is missing from the server environment. Please provide a token.' });
