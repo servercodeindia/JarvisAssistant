@@ -309,16 +309,23 @@ app.post('/api/check-verified', async (req, res) => {
 // ============================================================
 // JARVIS AI COMMAND PROCESSOR (GEMINI)
 // ============================================================
+import { GoogleGenerativeAI } from '@google/generative-ai';
+
 app.post('/api/jarvis-command', async (req, res) => {
     try {
         const { text } = req.body;
-        // Strip out accidental quotes, whitespaces, or newlines from the .env file
         let apiKey = process.env.GEMINI_API_KEY;
         if (apiKey) apiKey = apiKey.replace(/['"]/g, '').trim();
         
         if (!apiKey) {
             return res.json({ action: 'speak', text: 'Critical Error. Gemini API Key is missing from the server environment. Please provide a token.' });
         }
+
+        const genAI = new GoogleGenerativeAI(apiKey);
+        const model = genAI.getGenerativeModel({ 
+            model: "gemini-1.5-flash",
+            tools: [{ googleSearch: {} }] 
+        });
 
         const systemPrompt = `You are J.A.R.V.I.S., an advanced AI assistant. 
         The user will give you a voice command.
@@ -328,10 +335,10 @@ app.post('/api/jarvis-command', async (req, res) => {
            {"action": "open_url", "url": "https://www.website.com"}
            
         2. Answer Factual Queries / Search Data (e.g. "what is the weather", "who won the game", "search google for the price of bitcoin"): 
-           You have access to Google Search. Search for the real-time data, summarize the answer concisely (1-2 sentences), and return it to be spoken aloud:
+           Use the Google Search tool to find real-time data. Summarize the answer concisely (1-2 sentences), and return it to be spoken aloud:
            {"action": "speak", "text": "Sir, the current price is..."}
            
-        3. Literally open a Google Search tab (e.g. "open a tab for cats"): 
+        3. Literally open a Google Search browser tab (e.g. "open a tab for cats"): 
            {"action": "search", "query": "cats"}
 
         4. General conversation, questions, or greetings: 
@@ -339,21 +346,12 @@ app.post('/api/jarvis-command', async (req, res) => {
         
         Command: "${text}"`;
 
-        const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                contents: [{ parts: [{ text: systemPrompt }] }],
-                tools: [{ googleSearch: {} }],
-                generationConfig: { responseMimeType: "application/json" }
-            })
+        const resultAI = await model.generateContent({
+            contents: [{ role: 'user', parts: [{ text: systemPrompt }] }],
+            generationConfig: { responseMimeType: "application/json" }
         });
 
-        const data = await response.json();
-        if (data.error) throw new Error(data.error.message);
-
-        let rawText = data.candidates[0].content.parts[0].text;
-        // Strip out markdown code blocks if the AI accidentally added them
+        let rawText = resultAI.response.text();
         rawText = rawText.replace(/```json/g, '').replace(/```/g, '').trim();
         const result = JSON.parse(rawText);
 
