@@ -1,0 +1,176 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>J.A.R.V.I.S. | Tactical Bulk Caller</title>
+    <meta name="description" content="J.A.R.V.I.S. tactical communication interface">
+    <link rel="stylesheet" href="style.css">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;500;700;900&family=Share+Tech+Mono&display=swap" rel="stylesheet">
+</head>
+<body>
+    <!-- Background grid & scanlines -->
+    <div class="hud-bg"></div>
+    <div class="scanlines"></div>
+
+    <!-- Central AI Core -->
+    <div class="jarvis-core" id="coreContainer">
+        <div class="core-ring ring-1"></div>
+        <div class="core-ring ring-2"></div>
+        <div class="core-ring ring-3"></div>
+        <div class="core-orb" id="coreOrb"></div>
+        <div class="core-crosshair">
+            <div class="ch ch-top"></div>
+            <div class="ch ch-right"></div>
+            <div class="ch ch-bottom"></div>
+            <div class="ch ch-left"></div>
+        </div>
+        <div class="core-data-ring">
+            <span>SYS.ON</span> <span>UPLINK</span> <span>SEC.0</span>
+        </div>
+    </div>
+
+    <!-- Main UI Container -->
+    <div class="hud-container">
+        
+        <!-- Top Tech Header -->
+        <header class="hud-header draggable-panel">
+            <div class="drag-handle">≡≡≡ HLD ≡≡≡</div>
+            <div class="header-inner">
+                <div class="header-decor left-decor"></div>
+                <div class="title-block">
+                    <h1 class="logo">J.A.R.V.I.S.</h1>
+                    <p class="subtitle">TACTICAL COMMS INTERFACE // v3.2.0</p>
+                    <div class="voice-box">
+                        <button id="micBtn" class="hud-text-btn cyan voice-btn">[ START VOICE UPLINK ]</button>
+                        <span id="jarvisSpeech" class="jarvis-speech-text">> AWAITING AUDIO INPUT...</span>
+                    </div>
+                </div>
+                <div class="header-decor right-decor"></div>
+                
+                <div class="header-stats">
+                    <div class="stat"><span class="lbl">SYS:</span><span class="val success">ONLINE</span></div>
+                    <div class="stat"><span class="lbl">NET:</span><span class="val success">SECURE</span></div>
+                    <button id="toggleConsoleBtn" class="hud-text-btn cyan">[TOGGLE CMD]</button>
+                </div>
+            </div>
+        </header>
+
+        <main class="hud-grid" id="mainGrid">
+            
+            <!-- LEFT PANEL: Input & Queue -->
+            <section class="hud-panel panel-left panel-angled-top-left draggable-panel" id="panelLeft">
+                <div class="drag-handle top-handle">≡≡ DRAG ≡≡</div>
+                <div class="panel-header">
+                    <h2>TARGET ACQUISITION</h2>
+                    <span class="panel-id">SEQ-01</span>
+                </div>
+                
+                <div class="panel-content">
+                    <p class="hud-text muted">> INPUT TARGET COORDINATES [10-DIGIT NUM]</p>
+                    
+                    <div class="input-group">
+                        <span class="hud-prefix">[+91]</span>
+                        <input type="tel" id="singleNumber" class="hud-input" placeholder="ENTER NUMBER..." maxlength="10" />
+                        <button id="addNumberBtn" class="hud-btn btn-square">[+]</button>
+                    </div>
+
+                    <div class="bulk-group">
+                        <textarea id="bulkNumbers" class="hud-textarea" rows="3" placeholder=">> BATCH INPUT MODE READY..."></textarea>
+                        <button id="parseBulkBtn" class="hud-btn btn-outline" style="width:100%">INITIALIZE BATCH</button>
+                    </div>
+
+                    <!-- Target Queue -->
+                    <div class="queue-wrapper" id="queueSection" style="display:none;">
+                        <div class="queue-header">
+                            <h3>TARGET QUEUE</h3>
+                            <span class="queue-count">[<span id="queueCount">0</span>]</span>
+                            <button id="clearAllBtn" class="hud-text-btn danger">[PURGE]</button>
+                        </div>
+                        <div class="queue-list" id="numberList"></div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- RIGHT PANEL: Action & Results -->
+            <section class="hud-panel panel-right panel-angled-bottom-right draggable-panel" id="panelRight">
+                <div class="drag-handle top-handle">≡≡ DRAG ≡≡</div>
+                <div class="panel-header">
+                    <h2>COMMS EXECUTION</h2>
+                    <span class="panel-id">SEQ-02</span>
+                </div>
+
+                <div class="panel-content">
+                    <div class="action-box">
+                        <button id="startBulkCall" class="hud-btn btn-primary btn-massive" disabled>
+                            <span class="btn-text">INITIATE SEQUENCE</span>
+                        </button>
+                        <div class="warning-ticker">
+                            <marquee scrollamount="5" scrolldelay="100">WARNING: UNVERIFIED TARGETS WILL TRIGGER AUTO-VERIFY PROTOCOL (AUTH-01)</marquee>
+                        </div>
+                    </div>
+
+                    <div class="hud-progress-box" id="progressContainer" style="display:none;">
+                        <div class="prog-info">
+                            <span id="progressText" class="hud-text glow">> STANDBY...</span>
+                            <span id="progressPercent" class="hud-text cyan">[0%]</span>
+                        </div>
+                        <div class="prog-track">
+                            <div class="prog-fill" id="progressFill"></div>
+                        </div>
+                    </div>
+
+                    <div class="results-box" id="resultsSection" style="display:none;">
+                        <div class="results-summary" id="resultsSummary"></div>
+                        <div class="table-container">
+                            <table class="hud-table" id="resultsTable">
+                                <thead>
+                                    <tr><th>ID</th><th>TARGET</th><th>STAT</th><th>DATA</th></tr>
+                                </thead>
+                                <tbody id="resultsBody"></tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            </section>
+        </main>
+
+        <footer class="hud-footer">
+            <div class="footer-data">SYS.MEM: <span class="cyan">STABLE</span></div>
+            <div class="footer-data">TWL.NET: <span class="cyan">LINKED</span></div>
+            <div class="footer-data">AI.CORE: <span class="cyan">ULTRAVOX_V0.7</span></div>
+            <div class="footer-data end-data">DEV: <span class="cyan">SERVERCODEINDIA</span></div>
+        </footer>
+    </div>
+
+    <!-- Live Server Console Sliding Drawer -->
+    <div id="serverConsole" class="server-console closed">
+        <div class="console-header">
+            <span>root@jarvis-core:~# server_logs_stream</span>
+            <button id="closeConsoleBtn" class="close-console">[X]</button>
+        </div>
+        <div class="console-body" id="consoleBody">
+            <div class="log-line info">> UPLINK ESTABLISHED. WAITING FOR DATA...</div>
+        </div>
+    </div>
+
+    <!-- Verification Modal -->
+    <div class="hud-modal-overlay" id="verifyModal" style="display:none;">
+        <div class="hud-modal panel-angled-top-right panel-angled-bottom-left draggable-panel">
+            <div class="drag-handle">≡≡</div>
+            <h3 class="modal-title danger">!! VERIFICATION REQUIRED !!</h3>
+            <p class="modal-text" id="verifyModalText">TWILIO UPLINK ESTABLISHED. WAITING FOR AUTHENTICATION.</p>
+            <div class="auth-block" id="verifyCode" style="display:none;">
+                <span class="auth-lbl">> EXTRACTED OVERRIDE CODE:</span>
+                <div class="auth-code cyan-glow" id="codeDisplay">000000</div>
+            </div>
+            <p class="modal-subtext">> ENTER THIS CODE INTO TARGET DEVICE TO BYPASS RESTRICTION.</p>
+            <button id="closeModal" class="hud-btn btn-outline hover-cyan" style="width:100%; margin-top:15px;">[ OVERRIDE CONFIRMED ]</button>
+        </div>
+    </div>
+
+    <script src="app.js"></script>
+</body>
+</html>
