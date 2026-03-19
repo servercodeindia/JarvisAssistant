@@ -322,10 +322,7 @@ app.post('/api/jarvis-command', async (req, res) => {
         }
 
         const genAI = new GoogleGenerativeAI(apiKey);
-        const model = genAI.getGenerativeModel({ 
-            model: "gemini-1.5-flash",
-            tools: [{ googleSearch: {} }] 
-        });
+        const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
 
         const systemPrompt = `You are J.A.R.V.I.S., an advanced AI assistant. 
         The user will give you a voice command.
@@ -334,9 +331,9 @@ app.post('/api/jarvis-command', async (req, res) => {
         1. Open a website (e.g. "open youtube", "open facebook"): 
            {"action": "open_url", "url": "https://www.website.com"}
            
-        2. Answer Factual Queries / Search Data (e.g. "what is the weather", "who won the game", "search google for the price of bitcoin"): 
-           Use the Google Search tool to find real-time data. Summarize the answer concisely (1-2 sentences), and return it to be spoken aloud:
-           {"action": "speak", "text": "Sir, the current price is..."}
+        2. Answer Factual Queries / Creative Chat (e.g. "who won the game", "search for history of rome", "tell me a joke"): 
+           Answer the query naturally using your own vast internal knowledge base. Summarize the answer concisely (1-2 sentences), and return it to be spoken aloud:
+           {"action": "speak", "text": "Sir, according to my databanks..."}
            
         3. Literally open a Google Search browser tab (e.g. "open a tab for cats"): 
            {"action": "search", "query": "cats"}
