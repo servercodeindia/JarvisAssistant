@@ -323,7 +323,7 @@ app.post('/api/jarvis-command', async (req, res) => {
         }
 
         const genAI = new GoogleGenerativeAI(apiKey);
-        const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+        const model = genAI.getGenerativeModel({ model: "gemini-pro" });
 
         const systemPrompt = `You are J.A.R.V.I.S., an advanced AI assistant. 
         The user will give you a voice command.
@@ -344,10 +344,7 @@ app.post('/api/jarvis-command', async (req, res) => {
         
         Command: "${text}"`;
 
-        const resultAI = await model.generateContent({
-            contents: [{ role: 'user', parts: [{ text: systemPrompt }] }],
-            generationConfig: { responseMimeType: "application/json" }
-        });
+        const resultAI = await model.generateContent(systemPrompt);
 
         let rawText = resultAI.response.text();
         rawText = rawText.replace(/```json/g, '').replace(/```/g, '').trim();
