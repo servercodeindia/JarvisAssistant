@@ -108,14 +108,6 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     micBtn.addEventListener('click', async () => {
-        // Unlock Web Speech TTS Engine on first user interaction
-        if (!synthUnlocked && 'speechSynthesis' in window) {
-            const unlock = new SpeechSynthesisUtterance('');
-            unlock.volume = 0;
-            window.speechSynthesis.speak(unlock);
-            synthUnlocked = true;
-        }
-
         // If already recording, stop
         if (micBtn.classList.contains('recording') && recognition) {
             recognition.stop();
@@ -148,16 +140,13 @@ document.addEventListener('DOMContentLoaded', () => {
     function jarvisSpeak(text) {
         jarvisSpeech.textContent = `> J.A.R.V.I.S: ${text.toUpperCase()}`;
         if ('speechSynthesis' in window) {
-            // Cancel any ongoing speech to prevent queuing bugs
-            window.speechSynthesis.cancel();
-            
-            const utterance = new SpeechSynthesisUtterance(text);
-            const voices = window.speechSynthesis.getVoices();
-            const preferred = voices.find(v => v.lang.includes('en') && (v.name.includes('Google') || v.name.includes('Male')));
-            if(preferred) utterance.voice = preferred;
-            utterance.pitch = 0.5;
-            utterance.rate = 1.1;
-            window.speechSynthesis.speak(utterance);
+            window.speechSynthesis.cancel(); // Clear stuck queues
+            setTimeout(() => {
+                const utterance = new SpeechSynthesisUtterance(text);
+                utterance.pitch = 0.8;
+                utterance.rate = 1.0;
+                window.speechSynthesis.speak(utterance);
+            }, 50);
         }
     }
 
