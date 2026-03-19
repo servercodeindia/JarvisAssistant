@@ -45,6 +45,7 @@ document.addEventListener('DOMContentLoaded', () => {
     // =============================================
     const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
     let recognition = null;
+    let synthUnlocked = false; // Track if TTS is unlocked
     
     // Setup recognition object if browser supports it
     if (SpeechRecognition) {
@@ -57,7 +58,7 @@ document.addEventListener('DOMContentLoaded', () => {
         recognition.onstart = function() {
             micBtn.classList.add('recording');
             micBtn.textContent = '[ LISTENING... ]';
-            jarvisSpeech.textContent = '> AWAITING VOICE COMMAND...';
+            jarvisSpeech.textContent = '> AWAITING VOICE COMMAND... (SPEAK NOW)';
         };
 
         recognition.onresult = async function(event) {
@@ -75,7 +76,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 const data = await res.json();
                 executeJarvisAction(data);
             } catch (err) {
-                jarvisSpeak('Cannot reach mainframe.');
+                jarvisSpeak('Cannot reach mainframe. Check network or API key.');
                 micBtn.textContent = '[ START VOICE UPLINK ]';
             }
         };
@@ -84,9 +85,20 @@ document.addEventListener('DOMContentLoaded', () => {
             recognition.stop();
         };
 
+        // Reset UI if it ends without a result (user was quiet)
+        recognition.onend = function() {
+            if (micBtn.classList.contains('recording')) {
+                micBtn.classList.remove('recording');
+                micBtn.textContent = '[ START VOICE UPLINK ]';
+                jarvisSpeech.textContent = '> AUDIO CAPTURE TIMEOUT. NO SPEECH DETECTED.';
+            }
+        };
+
         recognition.onerror = function(event) {
             if (event.error === 'not-allowed') {
                 jarvisSpeak('Microphone access denied. Please allow permissions in browser settings.');
+            } else if (event.error === 'no-speech') {
+                // Handled by onend usually, but good to catch
             } else {
                 jarvisSpeak('Audio capture failed. Check network security protocols.');
             }
@@ -96,6 +108,14 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     micBtn.addEventListener('click', async () => {
+        // Unlock Web Speech TTS Engine on first user interaction
+        if (!synthUnlocked && 'speechSynthesis' in window) {
+            const unlock = new SpeechSynthesisUtterance('');
+            unlock.volume = 0;
+            window.speechSynthesis.speak(unlock);
+            synthUnlocked = true;
+        }
+
         // If already recording, stop
         if (micBtn.classList.contains('recording') && recognition) {
             recognition.stop();
@@ -128,6 +148,9 @@ document.addEventListener('DOMContentLoaded', () => {
     function jarvisSpeak(text) {
         jarvisSpeech.textContent = `> J.A.R.V.I.S: ${text.toUpperCase()}`;
         if ('speechSynthesis' in window) {
+            // Cancel any ongoing speech to prevent queuing bugs
+            window.speechSynthesis.cancel();
+            
             const utterance = new SpeechSynthesisUtterance(text);
             const voices = window.speechSynthesis.getVoices();
             const preferred = voices.find(v => v.lang.includes('en') && (v.name.includes('Google') || v.name.includes('Male')));
@@ -524,3 +547,4 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 });
+
